@@ -11,16 +11,17 @@ const SUSPENSION_REST_LENGTH = 0.3;
 const WHEEL_Z_OFFSET = 1.3;
 
 // Physics tuning parameters
-const SUSPENSION_STIFFNESS = 58;
-const SUSPENSION_DAMPING = 9;  // Increased for better slope traction
-const SUSPENSION_COMPRESSION = 4.4;
-const ROLL_INFLUENCE = 0.05;
-const WHEEL_FRICTION = 20;  // Increased for steep slope traction
+const SUSPENSION_STIFFNESS = 50;
+const SUSPENSION_DAMPING = 10;
+const SUSPENSION_COMPRESSION = 4.0;
+const ROLL_INFLUENCE = 0.1;
+const WHEEL_FRICTION = 20;  // Kept at 20 (2x car's 10) to match total grip since bike only has 2 contact points
 
 // Steering parameters
-const MAX_STEERING_ANGLE = 0.35;
-const STEERING_SPEED = 2.5;
-const STEERING_RETURN_SPEED = 3.5;
+const MIN_STEERING_ANGLE = 0.15;
+const MAX_STEERING_ANGLE = 0.4;
+const STEERING_SPEED = 1.5;
+const STEERING_RETURN_SPEED = 2;
 
 export function createBike(ammo, scene, physicsWorld, debugObjects, onBikeLoaded) {
   console.log("Starting bike creation");
@@ -45,7 +46,7 @@ export function createBike(ammo, scene, physicsWorld, debugObjects, onBikeLoaded
   chassisTransform.setOrigin(new ammo.btVector3(0, 5.2, 0));
 
   const chassisMotionState = new ammo.btDefaultMotionState(chassisTransform);
-  const chassisMass = 120; // Lighter than car
+  const chassisMass = 200; // Matched car's mass for equal acceleration curve
   const localInertia = new ammo.btVector3(0, 0, 0);
   chassisShape.calculateLocalInertia(chassisMass, localInertia);
 
@@ -56,7 +57,7 @@ export function createBike(ammo, scene, physicsWorld, debugObjects, onBikeLoaded
   bikeComponents.carBody = new ammo.btRigidBody(chassisRbInfo);
   bikeComponents.carBody.setActivationState(4);
   bikeComponents.carBody.setFriction(0.1);
-  bikeComponents.carBody.setDamping(0.05, 0.7); // (linearDamping, angularDamping)
+  bikeComponents.carBody.setDamping(0.05, 0.3); // (linearDamping, angularDamping)
 
   // Allow all rotations so the vehicle can pitch up and down hills properly
   // We will stabilize roll (Z axis) manually using custom torques
@@ -217,7 +218,13 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
 }
 
 export function updateSteering(deltaTime, vehicle, keyState, currentSteeringAngle, currentSpeed = 0, ammo, carBody) {
-  const maxSteeringAngle = MAX_STEERING_ANGLE;
+  // Calculate dynamic max steering angle based on speed, just like the car
+  const MIN_SPEED = 0;   
+  const MAX_SPEED = 150; 
+  const clampedSpeed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, currentSpeed));
+  const speedFactorLocal = (clampedSpeed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED);
+  const maxSteeringAngle = MAX_STEERING_ANGLE - speedFactorLocal * (MAX_STEERING_ANGLE - MIN_STEERING_ANGLE);
+
   let targetSteeringAngle = 0;
 
   if (keyState.a) {
@@ -226,7 +233,13 @@ export function updateSteering(deltaTime, vehicle, keyState, currentSteeringAngl
     targetSteeringAngle = -maxSteeringAngle;
   }
 
-  const steeringSpeed = (targetSteeringAngle === 0) ? STEERING_RETURN_SPEED : STEERING_SPEED;
+  // Determine appropriate steering speed mirroring the car's responsive direction switching
+  const steeringSpeed = (targetSteeringAngle === 0 || 
+                         (currentSteeringAngle > 0 && targetSteeringAngle < 0) || 
+                         (currentSteeringAngle < 0 && targetSteeringAngle > 0)) ? 
+    STEERING_RETURN_SPEED : 
+    STEERING_SPEED;
+
   const steeringDelta = targetSteeringAngle - currentSteeringAngle;
   const maxSteeringDelta = steeringSpeed * deltaTime;
 
@@ -266,8 +279,8 @@ export function updateSteering(deltaTime, vehicle, keyState, currentSteeringAngl
     const localAngularVel = new THREE.Vector3(angularVel.x(), angularVel.y(), angularVel.z());
     localAngularVel.applyQuaternion(threeQuat.clone().invert());
 
-    // Roll correction to keep upright using local Z roll velocity and heavy arcade stabilizing torque
-    const rollTorqueAmount = (rollDiff * 6000) - (localAngularVel.z * 800);
+    // Roll correction to keep upright: softened the multiplier to allow a smooth visual lean when turning
+    const rollTorqueAmount = (rollDiff * 2500) - (localAngularVel.z * 400);
 
     // Remove pitch correction so the bike can pitch naturally to climb steep slopes
     const pitchTorqueAmount = 0; 

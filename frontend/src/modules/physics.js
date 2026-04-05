@@ -99,14 +99,17 @@ export function updatePhysics(deltaTime, ammo, physicsState, carState, debugObje
     // For 4-wheel car: wheels 2&3 are rear. For 2-wheel bike: wheel 1 is rear.
     const isRearWheel = (numWheels === 2) ? (i === 1) : (i >= 2);
     if (isRearWheel) {
-      // Bikes are 1-wheel drive, cars are 2-wheel drive. 
-      // Multiply bike engine force by 2.2x to gain parity and increased steep slope climbing power
-      const appliedForce = (numWheels === 2) ? engineForce * 2.2 : engineForce;
+      // Bikes have exactly matching mass as cars now, so use exactly 2.0x multiplier 
+      // to perfectly match the 2-wheel drive total force of the 4-wheel car
+      const appliedForce = (numWheels === 2) ? engineForce * 2.0 : engineForce;
       vehicle.applyEngineForce(appliedForce, i);
     }
 
-    // Braking force to all wheels for better braking
-    vehicle.setBrake(brakingForce, i);
+    // Braking force to all wheels
+    // Because bikes have 2 wheels instead of 4, we multiply the braking force
+    // by 2 to ensure both vehicles stop identically based on their identical 200 mass
+    const appliedBrakingForce = (numWheels === 2) ? brakingForce * 2.0 : brakingForce;
+    vehicle.setBrake(appliedBrakingForce, i);
   }
 
   let newSteeringAngle = 0;
