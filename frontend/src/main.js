@@ -44,6 +44,7 @@ try {
 
 // Global variables
 let camera, scene, renderer, controls;
+let mainDirectionalLight;
 let physicsWorld, tmpTrans;
 let debugObjects = [];
 const clock = new THREE.Clock();
@@ -1303,6 +1304,14 @@ function animate() {
       } else {
         updateCamera();
       }
+      
+      // Update dynamic shadow light position to follow car
+      if (mainDirectionalLight && carModel) {
+        // Offset light from the car position
+        mainDirectionalLight.position.copy(carModel.position).add(new THREE.Vector3(40, 150, 30));
+        mainDirectionalLight.target.position.copy(carModel.position);
+      }
+      
       if (gateData) {
         // Check if player passed through a gate
         const raceFinished = checkGateProximity(carModel, gateData);
@@ -1513,11 +1522,31 @@ function setupEnhancedLighting() {
   scene.add(ambientLight);
   
   // Primary directional light (sun)
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 3.5);
-  directionalLight.position.set(40, 250, 30);
+  mainDirectionalLight = new THREE.DirectionalLight(0xffffff, 3.5);
+  mainDirectionalLight.position.set(40, 250, 30);
   
+  mainDirectionalLight.castShadow = true;
+  // Increase softness
+  mainDirectionalLight.shadow.radius = 1.5;
+  // High resolution
+  mainDirectionalLight.shadow.mapSize.width = 4096;
+  mainDirectionalLight.shadow.mapSize.height = 4096;
   
-  scene.add(directionalLight);
+  // Tighter frustum dynamically following the car
+  const d = 50;
+  mainDirectionalLight.shadow.camera.left = -d;
+  mainDirectionalLight.shadow.camera.right = d;
+  mainDirectionalLight.shadow.camera.top = d;
+  mainDirectionalLight.shadow.camera.bottom = -d;
+  mainDirectionalLight.shadow.camera.near = 0.5;
+  mainDirectionalLight.shadow.camera.far = 400;
+  
+  // Fix shadow acne and peter panning
+  mainDirectionalLight.shadow.bias = -0.001;
+  mainDirectionalLight.shadow.normalBias = 0.05;
+  
+  scene.add(mainDirectionalLight);
+  scene.add(mainDirectionalLight.target);
 }
 
 // Function to initialize UI elements

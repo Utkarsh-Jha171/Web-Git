@@ -44,7 +44,10 @@ class CarPreview {
     this.scene.add(ambientLight);
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(1, 1, 1);
+    directionalLight.position.set(5, 5, 5);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 512;
+    directionalLight.shadow.mapSize.height = 512;
     this.scene.add(directionalLight);
 
     const pointLight = new THREE.PointLight(0xffffff, 2, 50);

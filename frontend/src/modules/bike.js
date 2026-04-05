@@ -150,7 +150,7 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
       carModel.traverse((node) => {
         if (node.isMesh) {
           node.castShadow = true;
-          node.receiveShadow = false;
+          node.receiveShadow = true;
         }
       });
 
@@ -198,6 +198,7 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
           const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
           const wheelMesh = new THREE.Mesh(wheelGeometry, wheelMaterial);
           wheelMesh.castShadow = true;
+          wheelMesh.receiveShadow = true;
           scene.add(wheelMesh);
           wheelMesh.scale.set(4, 4, 4);
           bikeComponents.wheelMeshes[i] = wheelMesh;
@@ -206,6 +207,8 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
 
       scene.add(carModel);
       bikeComponents.carModel = carModel;
+      
+      addBlobShadow(carModel, 4, 10);
 
       console.log('Bike model reshaped successfully');
       if (onModelLoaded) onModelLoaded(bikeComponents);
@@ -359,4 +362,38 @@ export function updateBikePosition(ammo, vehicle, carModel, wheelMeshes) {
       );
     }
   }
+}
+
+// Helper to add fake ambient occlusion blob shadow
+function addBlobShadow(model, width, length) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 0.8)');
+  gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.5)');
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  
+  const shadowTexture = new THREE.CanvasTexture(canvas);
+  const shadowMaterial = new THREE.MeshBasicMaterial({ 
+    map: shadowTexture, 
+    transparent: true, 
+    depthWrite: false,
+    opacity: 0.8
+  });
+  
+  const shadowGeo = new THREE.PlaneGeometry(width, length);
+  const shadowMesh = new THREE.Mesh(shadowGeo, shadowMaterial);
+  shadowMesh.rotation.x = -Math.PI / 2;
+  // Position it slightly below the center of the chassis, right above ground
+  // Assuming model origin is center of chassis.
+  shadowMesh.position.y = -0.4; 
+  shadowMesh.receiveShadow = false;
+  shadowMesh.castShadow = false;
+  
+  model.add(shadowMesh);
 }
