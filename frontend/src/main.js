@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import "./style.css";
 import Ammo from './lib/ammo.js';
-import { createVehicle, updateSteering, resetCarPosition, updateCarPosition } from './modules/car.js';
+import { createVehicle as carCreateVehicle, updateSteering as carUpdateSteering, resetCarPosition as carResetPosition, updateCarPosition as carUpdatePosition } from './modules/car.js';
+import { createBike as bikeCreateVehicle, updateSteering as bikeUpdateSteering, resetBikePosition as bikeResetPosition, updateBikePosition as bikeUpdatePosition } from './modules/bike.js';
 import { loadTrackModel, loadMapDecorations, checkGroundCollision } from './modules/track.js';
 import { 
   loadGates, 
@@ -1069,8 +1070,25 @@ function init() {
     
     console.log("About to create vehicle physics");
 
+    // Check which vehicle type to create
+    let vehicleType = 'car';
+    const myPlayerId = localStorage.getItem('myPlayerId');
+    try {
+      if (gameConfig && gameConfig.players) {
+        const playerInfo = gameConfig.players.find(p => p.id === myPlayerId) || gameConfig.players[0];
+        if (playerInfo && playerInfo.vehicle) vehicleType = playerInfo.vehicle;
+      }
+    } catch (e) {}
+    vehicleType = sessionStorage.getItem('vehicle') || sessionStorage.getItem('vehicleType') || vehicleType;
+    
+    // Store globally so physics loop knows
+    window.currentVehicleType = vehicleType;
+
+    // Choose creation function
+    const createFunc = vehicleType === 'bike' ? bikeCreateVehicle : carCreateVehicle;
+
     // First create just the physics body, don't set global variables yet
-    const carComponents = createVehicle(ammo, scene, physicsWorld, debugObjects, (loadedComponents) => {
+    const carComponents = createFunc(ammo, scene, physicsWorld, debugObjects, (loadedComponents) => {
       
       // Now set all the global variables
       carBody = loadedComponents.carBody;
@@ -1079,7 +1097,7 @@ function init() {
       carModel = loadedComponents.carModel;
       currentSteeringAngle = loadedComponents.currentSteeringAngle;
       
-      console.log("Car model loaded and global variables set:", carModel);
+      console.log("Vehicle model loaded and global variables set:", carModel);
       
       // Update car reference in multiplayer state
       multiplayerState.carModel = carModel;
@@ -1166,7 +1184,8 @@ function setupKeyControls() {
     // Replace the keydown R handler with this improved version:
     if (key === 'r' || key === 'R') {
       if (window.Ammo && carBody && gateData) {
-        currentSteeringAngle = resetCarPosition(
+        const resetFunc = window.currentVehicleType === 'bike' ? bikeResetPosition : carResetPosition;
+        currentSteeringAngle = resetFunc(
           window.Ammo, 
           carBody, 
           vehicle, 
@@ -1231,6 +1250,7 @@ function animate() {
   if (physicsWorld) {
     // Run physics at fixed intervals
     while (accumulator >= FIXED_PHYSICS_STEP) {
+      const updateSteeringFunc = window.currentVehicleType === 'bike' ? bikeUpdateSteering : carUpdateSteering;
       const carState = {
         carBody, 
         vehicle, 
@@ -1238,7 +1258,7 @@ function animate() {
         wheelMeshes,
         keyState,
         currentSteeringAngle,
-        updateSteering
+        updateSteering: updateSteeringFunc
       };
 
       const physicsResult = updatePhysics(
@@ -1255,12 +1275,14 @@ function animate() {
       updateSpeedometer(speedKPH);
       currentSteeringAngle = physicsResult.currentSteeringAngle;
       // Update car position
-      updateCarPosition(window.Ammo, vehicle, carModel, wheelMeshes);
+      const updatePosFunc = window.currentVehicleType === 'bike' ? bikeUpdatePosition : carUpdatePosition;
+      updatePosFunc(window.Ammo, vehicle, carModel, wheelMeshes);
 
       // Add this line to check if car has fallen off the track
       checkGroundCollision(window.Ammo, carBody, () => {
         // This will reset the car to the last gate position when it falls off
-        currentSteeringAngle = resetCarPosition(
+        const resetFunc = window.currentVehicleType === 'bike' ? bikeResetPosition : carResetPosition;
+        currentSteeringAngle = resetFunc(
           window.Ammo, 
           carBody, 
           vehicle, 
