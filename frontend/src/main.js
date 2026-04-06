@@ -17,6 +17,8 @@ import {
 } from './modules/multiplayer.js';
 import { initPhysics, updatePhysics, FIXED_PHYSICS_STEP } from './modules/physics.js';
 import { createMinimap, extractTrackData, updateMinimapPlayers } from './modules/minimap.js';
+import { createTNTSection, updateTNTSection } from './modules/tnt.js';
+import { createBoulderSection } from './modules/boulder.js';
 
 // Check for game config from lobby
 let gameConfig = null;
@@ -54,6 +56,9 @@ let carBody;
 let vehicle;
 let wheelMeshes = [];
 let carModel;
+
+// Hazards
+let tntSystem = null;
 
 // Car flip detection
 let carFlippedTime = 0;
@@ -488,6 +493,19 @@ function startRaceTimer() {
 function updateRaceTimer() {
   if (!raceTimer || !raceTimer.contentElement) return;
   
+  // PAUSE TIMER LOGIC: calculate the time slip while paused to smoothly resume
+  if (window.raceState && window.raceState.isPaused) {
+    if (window.lastPauseAdjustTime) {
+      const now = Date.now();
+      raceStartTime += (now - window.lastPauseAdjustTime);
+      window.lastPauseAdjustTime = now;
+    } else {
+      window.lastPauseAdjustTime = Date.now();
+    }
+    return;
+  }
+  window.lastPauseAdjustTime = null;
+  
   const elapsedMilliseconds = Date.now() - raceStartTime;
   const elapsedSeconds = Math.floor(elapsedMilliseconds / 1000);
   const minutes = Math.floor(elapsedSeconds / 60);
@@ -900,6 +918,62 @@ function showFinalLeaderboard() {
   // Assemble final leaderboard
   finalLeaderboard.appendChild(title);
   finalLeaderboard.appendChild(table);
+  
+  // --- START LOCAL BEST TIMES SECTION ---
+  try {
+    const bestTimesJson = localStorage.getItem('race_best_times');
+    if (bestTimesJson) {
+      const bestTimes = JSON.parse(bestTimesJson);
+      if (bestTimes.length > 0) {
+        
+        const localRecordsDivider = document.createElement('div');
+        localRecordsDivider.style.height = '1px';
+        localRecordsDivider.style.backgroundColor = 'rgba(255,255,255,0.2)';
+        localRecordsDivider.style.margin = '25px 0';
+        finalLeaderboard.appendChild(localRecordsDivider);
+        
+        const localRecordsTitle = document.createElement('h3');
+        localRecordsTitle.textContent = 'ALL-TIME BEST (TOP 3)';
+        localRecordsTitle.style.fontSize = '22px';
+        localRecordsTitle.style.color = '#ffaa00';
+        localRecordsTitle.style.marginBottom = '15px';
+        localRecordsTitle.style.letterSpacing = '2px';
+        finalLeaderboard.appendChild(localRecordsTitle);
+        
+        const bestTimeTable = document.createElement('table');
+        bestTimeTable.style.width = '100%';
+        bestTimeTable.style.borderCollapse = 'collapse';
+        
+        const bestHeaderRow = document.createElement('tr');
+        bestHeaderRow.innerHTML = `
+          <th style="padding: 8px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.2); font-size: 14px;">RANK</th>
+          <th style="padding: 8px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.2); font-size: 14px;">PLAYER</th>
+          <th style="padding: 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.2); font-size: 14px;">RECORD</th>
+        `;
+        bestTimeTable.appendChild(bestHeaderRow);
+        
+        bestTimes.forEach((timeStr, idx) => {
+          const r = document.createElement('tr');
+          const isNewRecord = (timeStr === (playerFinishTimes[localStorage.getItem('myPlayerId')] || ''));
+          const rankColor = getPositionColor(idx + 1);
+          r.innerHTML = `
+            <td style="padding: 10px; text-align: center; color: ${rankColor}; font-weight: bold;">#${idx + 1}</td>
+            <td style="padding: 10px; text-align: center; font-size: 16px;">
+              ${isNewRecord ? '<span style="color:#00ff88; font-weight:bold;">YOU (NEW!)</span>' : 'YOU'}
+            </td>
+            <td style="padding: 10px; text-align: right; font-family: monospace; font-size: 18px; font-weight: bold; color: ${isNewRecord ? '#00ff88' : '#ffffff'};">${timeStr}</td>
+          `;
+          bestTimeTable.appendChild(r);
+        });
+        
+        finalLeaderboard.appendChild(bestTimeTable);
+      }
+    }
+  } catch(e) {
+    console.warn("Failed to render local best times:", e);
+  }
+  // --- END LOCAL BEST TIMES SECTION ---
+  
   finalLeaderboard.appendChild(homeButton);
   document.body.appendChild(finalLeaderboard);
   
@@ -1067,6 +1141,73 @@ function init() {
       // Make gate data globally available for multiplayer
       window.gateData = gateData;
       console.log(`Gates loaded for ${mapToLoad}. Total gates: ${gateData.totalGates}`);
+      
+      // Random gates to spawn hazards (avoiding start/finish gates 0 and 7)
+      // Pick separate locations along the track:
+      const possibleGates = [1, 2, 3, 4, 5, 6];
+      possibleGates.sort(() => Math.random() - 0.5); // Shuffle
+      
+      // Assign completely unique, non-overlapping gates to the hazards
+      const chosenTntIndices = [possibleGates[0], possibleGates[1]];
+      const chosenBoulderIndices = [possibleGates[2], possibleGates[3], possibleGates[4]]; // 3 gates for boulders
+      
+      // 1. Spawn Explosive TNT Sections
+      const tntPositions = [];
+      chosenTntIndices.forEach(idx => {
+        const targetGate = loadedGateData.gates[idx];
+        if (targetGate) {
+          const gatePos = new THREE.Vector3();
+          const gateQuat = new THREE.Quaternion();
+          targetGate.getWorldPosition(gatePos);
+          targetGate.getWorldQuaternion(gateQuat);
+          
+          const lanes = [-4.5, -1.5, 1.5, 4.5];
+          lanes.sort(() => Math.random() - 0.5); 
+          
+          lanes.forEach((lateralX, index) => {
+            const depthZ = -4.5 + (index * 3); 
+            const offset = new THREE.Vector3(lateralX, 1.3, depthZ);
+            offset.applyQuaternion(gateQuat);
+            offset.add(gatePos);
+            tntPositions.push(offset);
+          });
+        }
+      });
+      
+      if (tntPositions.length > 0) {
+        tntSystem = createTNTSection(scene, { positions: tntPositions });
+      }
+
+      // 2. Spawn Static Boulders Sections
+      const boulderPositions = [];
+      chosenBoulderIndices.forEach(idx => {
+        const targetGate = loadedGateData.gates[idx];
+        if (targetGate) {
+          const gatePos = new THREE.Vector3();
+          const gateQuat = new THREE.Quaternion();
+          targetGate.getWorldPosition(gatePos);
+          targetGate.getWorldQuaternion(gateQuat);
+          
+          const lanes = [-4.5, -1.5, 1.5, 4.5];
+          lanes.sort(() => Math.random() - 0.5); 
+          
+          // Boulders are heavily blocking, spawn 2 per checkpoint (leaves 2 wide open lanes)
+          const selectedLanes = [lanes[0], lanes[1]];
+          
+          selectedLanes.forEach((lateralX, index) => {
+            const depthZ = -6 + (index * 6); // 12 unit spread
+            const offset = new THREE.Vector3(lateralX, 1.3, depthZ);
+            offset.applyQuaternion(gateQuat);
+            offset.add(gatePos);
+            boulderPositions.push(offset);
+          });
+        }
+      });
+      
+      if (boulderPositions.length > 0) {
+        // Send the Ammo context directly to bind real physics bodies to the rocks
+        createBoulderSection(scene, boulderPositions, window.Ammo, physicsWorld);
+      }
     });
     
     console.log("About to create vehicle physics");
@@ -1166,6 +1307,78 @@ function hideLoadingScreen() {
   }, 500);
 }
 
+// Function to assemble and toggle Pause Menu overlay
+function togglePauseMenu(isPaused) {
+  let pauseMenu = document.getElementById('pause-menu-ui');
+  if (isPaused) {
+    if (!pauseMenu) {
+      pauseMenu = document.createElement('div');
+      pauseMenu.id = 'pause-menu-ui';
+      pauseMenu.style.position = 'absolute';
+      pauseMenu.style.top = '0';
+      pauseMenu.style.left = '0';
+      pauseMenu.style.width = '100%';
+      pauseMenu.style.height = '100%';
+      pauseMenu.style.backgroundColor = 'rgba(0,0,0,0.85)';
+      pauseMenu.style.backdropFilter = 'blur(5px)';
+      pauseMenu.style.display = 'flex';
+      pauseMenu.style.flexDirection = 'column';
+      pauseMenu.style.alignItems = 'center';
+      pauseMenu.style.justifyContent = 'center';
+      pauseMenu.style.zIndex = '3000';
+      pauseMenu.style.fontFamily = "'Poppins', sans-serif";
+      
+      const title = document.createElement('h1');
+      title.textContent = 'PAUSED';
+      title.style.color = '#fff';
+      title.style.fontStyle = 'italic';
+      title.style.fontSize = '80px';
+      title.style.marginBottom = '40px';
+      
+      const btnStyle = "padding:15px 40px; margin:10px; width:300px; font-size:24px; font-weight:bold; cursor:pointer; background:#ff0080; border:2px solid #b30059; color:white; border-radius:5px; transition:transform 0.1s;";
+      
+      const resumeBtn = document.createElement('button');
+      resumeBtn.textContent = 'RESUME';
+      resumeBtn.style.cssText = btnStyle;
+      resumeBtn.onmouseover = () => resumeBtn.style.transform = 'scale(1.05)';
+      resumeBtn.onmouseout = () => resumeBtn.style.transform = 'scale(1)';
+      resumeBtn.onclick = () => { window.raceState.isPaused = false; togglePauseMenu(false); };
+      
+      const restartBtn = document.createElement('button');
+      restartBtn.textContent = 'RESTART RACE';
+      restartBtn.style.cssText = btnStyle;
+      restartBtn.onmouseover = () => restartBtn.style.transform = 'scale(1.05)';
+      restartBtn.onmouseout = () => restartBtn.style.transform = 'scale(1)';
+      restartBtn.onclick = () => { 
+        window.raceState.isPaused = false; 
+        togglePauseMenu(false);
+        if (window.Ammo && carBody && gateData) {
+          const resetFunc = window.currentVehicleType === 'bike' ? bikeResetPosition : carResetPosition;
+          currentSteeringAngle = resetFunc(window.Ammo, carBody, vehicle, currentSteeringAngle, gateData.currentGatePosition, gateData.currentGateQuaternion);
+        }
+      };
+      
+      const homeBtn = document.createElement('button');
+      homeBtn.textContent = 'MAIN MENU';
+      homeBtn.style.cssText = btnStyle;
+      homeBtn.style.backgroundColor = '#444';
+      homeBtn.style.borderColor = '#222';
+      homeBtn.onmouseover = () => homeBtn.style.transform = 'scale(1.05)';
+      homeBtn.onmouseout = () => homeBtn.style.transform = 'scale(1)';
+      homeBtn.onclick = () => window.location.href = 'index.html';
+      
+      pauseMenu.appendChild(title);
+      pauseMenu.appendChild(resumeBtn);
+      pauseMenu.appendChild(restartBtn);
+      pauseMenu.appendChild(homeBtn);
+      document.body.appendChild(pauseMenu);
+    }
+    pauseMenu.style.display = 'flex';
+  } else {
+    if (pauseMenu) pauseMenu.style.display = 'none';
+  }
+}
+
 // Setup key controls for vehicle
 function setupKeyControls() {
   document.addEventListener('keydown', (event) => {
@@ -1197,9 +1410,16 @@ function setupKeyControls() {
       }
     }
 
-    // Add spectator mode toggle
-    if (key === 'p' || key === 'P') {
+    // Add spectator mode toggle (Moved to V)
+    if (key === 'v' || key === 'V') {
       if (spectatorMode) exitSpectatorMode(); else enterSpectatorMode();
+    }
+    
+    // Pause menu toggle via P or ESC
+    if (key === 'p' || key === 'P' || key === 'Escape') {
+      window.raceState = window.raceState || {};
+      window.raceState.isPaused = !window.raceState.isPaused;
+      togglePauseMenu(window.raceState.isPaused);
     }
   });
   
@@ -1246,6 +1466,12 @@ let accumulator = 0;
 function animate() {
   requestAnimationFrame(animate);
   const deltaTime = Math.min(clock.getDelta(), 0.1);
+  
+  if (window.raceState && window.raceState.isPaused) {
+    renderer.render(scene, camera);
+    return; // Freeze visual calculations entirely when paused
+  }
+  
   accumulator += deltaTime;
   
   if (physicsWorld) {
@@ -1301,6 +1527,28 @@ function animate() {
       accumulator -= FIXED_PHYSICS_STEP;
       if (spectatorMode) {
         updateSpectatorCamera();
+      } else if (raceState.raceFinished) {
+        // Disconnect inputs so vehicle coasts to a stop smoothly
+        keyState.w = false;
+        keyState.a = false;
+        keyState.s = false;
+        keyState.d = false;
+        keyState.boost = false;
+        
+        // Cinematic orbit camera
+        if (carModel) {
+          const orbitRadius = 15;
+          const orbitHeight = 5;
+          const orbitSpeed = 0.5; // rads per sec
+          // Use Date.now() for continuous smooth orbit independent of physics step
+          const time = Date.now() * 0.001; 
+          
+          camera.position.x = carModel.position.x + Math.sin(time * orbitSpeed) * orbitRadius;
+          camera.position.y = carModel.position.y + orbitHeight;
+          camera.position.z = carModel.position.z + Math.cos(time * orbitSpeed) * orbitRadius;
+          
+          camera.lookAt(carModel.position);
+        }
       } else {
         updateCamera();
       }
@@ -1311,6 +1559,9 @@ function animate() {
         mainDirectionalLight.position.copy(carModel.position).add(new THREE.Vector3(40, 150, 30));
         mainDirectionalLight.target.position.copy(carModel.position);
       }
+      
+      // Update TNT Hazards
+      updateTNTSection(FIXED_PHYSICS_STEP, carModel, camera, window.Ammo, carBody, tntSystem);
       
       if (gateData) {
         // Check if player passed through a gate

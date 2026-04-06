@@ -7,11 +7,11 @@ const VEHICLE_HEIGHT = 1.0;
 const VEHICLE_LENGTH = 2.5;
 const WHEEL_RADIUS = 0.4;
 const WHEEL_WIDTH = 0.2;
-const SUSPENSION_REST_LENGTH = 0.3;
+const SUSPENSION_REST_LENGTH = 0.5; // Increased to give the chassis more clearance over bumps
 const WHEEL_Z_OFFSET = 1.3;
 
 // Physics tuning parameters
-const SUSPENSION_STIFFNESS = 50;
+const SUSPENSION_STIFFNESS = 60; // Increased to prevent bottoming out easily
 const SUSPENSION_DAMPING = 10;
 const SUSPENSION_COMPRESSION = 4.0;
 const ROLL_INFLUENCE = 0.1;
@@ -56,7 +56,8 @@ export function createBike(ammo, scene, physicsWorld, debugObjects, onBikeLoaded
 
   bikeComponents.carBody = new ammo.btRigidBody(chassisRbInfo);
   bikeComponents.carBody.setActivationState(4);
-  bikeComponents.carBody.setFriction(0.1);
+  bikeComponents.carBody.setFriction(0.0); // 0 friction prevents the chassis from sticking to or grinding along walls
+  bikeComponents.carBody.setRestitution(0.4); // Adds a slight bounce to force it to deflect off head-on wall collisions
   bikeComponents.carBody.setDamping(0.05, 0.3); // (linearDamping, angularDamping)
 
   // Allow all rotations so the vehicle can pitch up and down hills properly

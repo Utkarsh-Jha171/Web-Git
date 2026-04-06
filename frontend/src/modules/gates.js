@@ -243,6 +243,28 @@ export function showFinishMessage(totalGates, resetCallback) {
     window.playerFinishTimes[localStorage.getItem('myPlayerId')] = finalTime;
   }
   
+  // Update Local Storage Database with Top 3 best times
+  if (finalTime !== "00:00") {
+    try {
+      const bestTimes = JSON.parse(localStorage.getItem('race_best_times') || '[]');
+      bestTimes.push(finalTime);
+      
+      // Sort fastest first
+      const timeToSeconds = (t) => {
+        const parts = t.split(':').map(Number);
+        return (parts[0] || 0) * 60 + (parts[1] || 0);
+      };
+      bestTimes.sort((a, b) => timeToSeconds(a) - timeToSeconds(b));
+      
+      // Deduplicate and slice top 3
+      const uniqueTop3 = [...new Set(bestTimes)].slice(0, 3);
+      localStorage.setItem('race_best_times', JSON.stringify(uniqueTop3));
+      console.log("Updated Local Best Times Database:", uniqueTop3);
+    } catch(err) {
+      console.error("Error accessing localStorage for best times:", err);
+    }
+  }
+  
   // Create the FINISH text container
   const finishUI = document.createElement('div');
   finishUI.id = 'finish-ui';

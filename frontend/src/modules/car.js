@@ -217,8 +217,6 @@ function loadCarModel(ammo, scene, carComponents, wheelPositions, onModelLoaded)
         scene.add(carModel);
         carComponents.carModel = carModel;
         
-        addBlobShadow(carModel, 8, 16);
-
         console.log('Car model loaded successfully');
         if (onModelLoaded) onModelLoaded(carComponents);
       },
@@ -310,8 +308,6 @@ function loadCarModel(ammo, scene, carComponents, wheelPositions, onModelLoaded)
         scene.add(carModel);
         carComponents.carModel = carModel;
         
-        addBlobShadow(carModel, 8, 16);
-
         console.log('Vehicle model loaded successfully');
         if (onModelLoaded) onModelLoaded(carComponents);
       },
@@ -323,39 +319,6 @@ function loadCarModel(ammo, scene, carComponents, wheelPositions, onModelLoaded)
   }
 }
 
-// Helper to add fake ambient occlusion blob shadow
-function addBlobShadow(model, width, length) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const context = canvas.getContext('2d');
-  
-  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gradient.addColorStop(0, 'rgba(0, 0, 0, 0.8)');
-  gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.5)');
-  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 128, 128);
-  
-  const shadowTexture = new THREE.CanvasTexture(canvas);
-  const shadowMaterial = new THREE.MeshBasicMaterial({ 
-    map: shadowTexture, 
-    transparent: true, 
-    depthWrite: false,
-    opacity: 0.8
-  });
-  
-  const shadowGeo = new THREE.PlaneGeometry(width, length);
-  const shadowMesh = new THREE.Mesh(shadowGeo, shadowMaterial);
-  shadowMesh.rotation.x = -Math.PI / 2;
-  // Position it slightly below the center of the chassis, right above ground
-  // Assuming model origin is center of chassis. Suspension length + half chassis.
-  shadowMesh.position.y = -0.5; 
-  shadowMesh.receiveShadow = false;
-  shadowMesh.castShadow = false;
-  
-  model.add(shadowMesh);
-}
 
 // Update fallback model function to also use callback
 function loadFallbackCarModel(ammo, scene, carComponents, wheelPositions, onModelLoaded) {
@@ -415,8 +378,6 @@ function loadFallbackCarModel(ammo, scene, carComponents, wheelPositions, onMode
       scene.add(carModel);
       carComponents.carModel = carModel;
       
-      addBlobShadow(carModel, 8, 16);
-
       console.log('Fallback car model loaded successfully');
 
       // Call the callback when complete

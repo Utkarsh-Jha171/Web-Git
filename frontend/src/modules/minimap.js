@@ -296,18 +296,37 @@ export function updateMinimapPlayers(localPlayer, opponents) {
     });
   }
   
-  // Draw local player as a blue dot
+  // Draw local player as a white navigation arrow
   if (localPlayer) {
     const { x, y } = worldToMinimap(localPlayer.position.x/8, localPlayer.position.z/8);
     
-    // Draw blue circle for local player
+    // Extract rotation to orient the arrow correctly
+    const euler = new THREE.Euler().setFromQuaternion(localPlayer.quaternion, 'YXZ');
+    
+    minimap.ctx.save();
+    minimap.ctx.translate(x, y);
+    // Three.js Y-rotation to Canvas rotation
+    minimap.ctx.rotate(-euler.y); 
+    
+    // Draw sleek white arrow cursor
     minimap.ctx.beginPath();
-    minimap.ctx.arc(x, y, 5, 0, Math.PI * 2);
-    minimap.ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+    minimap.ctx.moveTo(0, 8);      // Forward Tip (pointing "down" visually before rotation alignment)
+    minimap.ctx.lineTo(5, -6);     // Back right
+    minimap.ctx.lineTo(0, -3);     // Bottom center notch
+    minimap.ctx.lineTo(-5, -6);    // Back left
+    minimap.ctx.closePath();
+    
+    // Fill white
+    minimap.ctx.fillStyle = '#ffffff';
     minimap.ctx.fill();
-    minimap.ctx.beginPath();
-    minimap.ctx.arc(x, y, 4, 0, Math.PI * 2);
-    minimap.ctx.fillStyle = 'rgba(43, 118, 199, 1)';
-    minimap.ctx.fill();
+    
+    // Slight shadow drop for contrast against track
+    minimap.ctx.shadowColor = 'rgba(0, 0, 0, 1)';
+    minimap.ctx.shadowBlur = 4;
+    minimap.ctx.strokeStyle = '#000000';
+    minimap.ctx.lineWidth = 1;
+    minimap.ctx.stroke();
+    
+    minimap.ctx.restore();
   }
 }
