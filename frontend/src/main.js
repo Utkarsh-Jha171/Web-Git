@@ -1532,18 +1532,18 @@ function setupEnhancedLighting() {
   mainDirectionalLight.shadow.mapSize.width = 4096;
   mainDirectionalLight.shadow.mapSize.height = 4096;
   
-  // Tighter frustum dynamically following the car
-  const d = 50;
+  // Larger frustum dynamically following the car to see environment shadows
+  const d = 250;
   mainDirectionalLight.shadow.camera.left = -d;
   mainDirectionalLight.shadow.camera.right = d;
   mainDirectionalLight.shadow.camera.top = d;
   mainDirectionalLight.shadow.camera.bottom = -d;
   mainDirectionalLight.shadow.camera.near = 0.5;
-  mainDirectionalLight.shadow.camera.far = 400;
+  mainDirectionalLight.shadow.camera.far = 800;
   
   // Fix shadow acne and peter panning
-  mainDirectionalLight.shadow.bias = -0.001;
-  mainDirectionalLight.shadow.normalBias = 0.05;
+  mainDirectionalLight.shadow.bias = -0.0005;
+  mainDirectionalLight.shadow.normalBias = 0.1;
   
   scene.add(mainDirectionalLight);
   scene.add(mainDirectionalLight.target);

@@ -142,7 +142,6 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
     bikePath,
     (gltf) => {
       const carModel = gltf.scene;
-
       // Cars natively scale by 4
       carModel.scale.set(4, 4, 4);
       carModel.position.set(0, 0, 0);
@@ -179,7 +178,28 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
       for (let i = 0; i < activeWheels.length; i++) {
         const wheelObj = activeWheels[i];
         if (wheelObj) {
+          // Center the wheel on the local X axis before creating the anchor wrapper, 
+          // to fix the issue where it was offset to the left/right like a 4-wheel car.
+          wheelObj.position.x = 0;
+
           try { wheelObj.updateMatrixWorld(true); } catch (e) { }
+
+          // Create an anchor point to maintain the exact visual position relative to the bike,
+          // ignoring the physics suspension travel that causes the wheel to visually detach from the fork.
+          const anchor = new THREE.Object3D();
+          anchor.position.copy(wheelObj.position);
+          anchor.quaternion.copy(wheelObj.quaternion);
+          // Preserve relative scale if any
+          anchor.scale.copy(wheelObj.scale);
+
+          if (wheelObj.parent) {
+            wheelObj.parent.add(anchor);
+          } else {
+            carModel.add(anchor);
+          }
+
+          wheelObj.userData.anchor = anchor;
+
           try { carModel.remove(wheelObj); } catch (e) { }
           scene.add(wheelObj);
 
@@ -188,7 +208,7 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
           wheelObj.scale.set(4, 4, 4);
 
           bikeComponents.wheelMeshes[i] = wheelObj;
-          console.log(`Attached reshaped bike wheel mesh`);
+          console.log(`Attached reshaped bike wheel mesh with anchor`);
         } else {
           // procedural fallback for wheeled meshes just in case
           const wheelGeometry = new THREE.CylinderGeometry(
@@ -207,8 +227,9 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
 
       scene.add(carModel);
       bikeComponents.carModel = carModel;
-      
-      addBlobShadow(carModel, 4, 10);
+
+      // removed addBlobShadow as requested to fix floating shadow on slopes
+      // addBlobShadow(carModel, 4, 10);
 
       console.log('Bike model reshaped successfully');
       if (onModelLoaded) onModelLoaded(bikeComponents);
@@ -222,8 +243,8 @@ function loadBikeModel(ammo, scene, bikeComponents, wheelPositions, onModelLoade
 
 export function updateSteering(deltaTime, vehicle, keyState, currentSteeringAngle, currentSpeed = 0, ammo, carBody) {
   // Calculate dynamic max steering angle based on speed, just like the car
-  const MIN_SPEED = 0;   
-  const MAX_SPEED = 150; 
+  const MIN_SPEED = 0;
+  const MAX_SPEED = 150;
   const clampedSpeed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, currentSpeed));
   const speedFactorLocal = (clampedSpeed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED);
   const maxSteeringAngle = MAX_STEERING_ANGLE - speedFactorLocal * (MAX_STEERING_ANGLE - MIN_STEERING_ANGLE);
@@ -237,10 +258,10 @@ export function updateSteering(deltaTime, vehicle, keyState, currentSteeringAngl
   }
 
   // Determine appropriate steering speed mirroring the car's responsive direction switching
-  const steeringSpeed = (targetSteeringAngle === 0 || 
-                         (currentSteeringAngle > 0 && targetSteeringAngle < 0) || 
-                         (currentSteeringAngle < 0 && targetSteeringAngle > 0)) ? 
-    STEERING_RETURN_SPEED : 
+  const steeringSpeed = (targetSteeringAngle === 0 ||
+    (currentSteeringAngle > 0 && targetSteeringAngle < 0) ||
+    (currentSteeringAngle < 0 && targetSteeringAngle > 0)) ?
+    STEERING_RETURN_SPEED :
     STEERING_SPEED;
 
   const steeringDelta = targetSteeringAngle - currentSteeringAngle;
@@ -286,7 +307,7 @@ export function updateSteering(deltaTime, vehicle, keyState, currentSteeringAngl
     const rollTorqueAmount = (rollDiff * 2500) - (localAngularVel.z * 400);
 
     // Remove pitch correction so the bike can pitch naturally to climb steep slopes
-    const pitchTorqueAmount = 0; 
+    const pitchTorqueAmount = 0;
 
     // Always apply stabilization (including when trying to recover from tips)
     const rollTorque = forwardVector.clone().multiplyScalar(rollTorqueAmount);
@@ -347,14 +368,28 @@ export function updateBikePosition(ammo, vehicle, carModel, wheelMeshes) {
   carModel.position.set(position.x(), position.y(), position.z());
   carModel.quaternion.set(quaternion.x(), quaternion.y(), quaternion.z(), quaternion.w());
 
+  // Force update matrix world so we can read accurate world positions for anchors
+  carModel.updateMatrixWorld(true);
+
   for (let i = 0; i < vehicle.getNumWheels(); i++) {
     vehicle.updateWheelTransform(i, true);
     if (wheelMeshes[i]) {
       const transform = vehicle.getWheelInfo(i).get_m_worldTransform();
-      const wheelPosition = transform.getOrigin();
       const wheelQuaternion = transform.getRotation();
-      wheelMeshes[i].position.set(wheelPosition.x(), wheelPosition.y(), wheelPosition.z());
-      wheelMeshes[i].quaternion.set(
+
+      const paramWheel = wheelMeshes[i];
+      if (paramWheel.userData && paramWheel.userData.anchor) {
+        // Tie to the visual anchor so the tyre stays exactly on the fork/shaft
+        const targetPos = new THREE.Vector3();
+        paramWheel.userData.anchor.getWorldPosition(targetPos);
+        paramWheel.position.copy(targetPos);
+      } else {
+        // Fallback for procedural wheels
+        const wheelPosition = transform.getOrigin();
+        paramWheel.position.set(wheelPosition.x(), wheelPosition.y(), wheelPosition.z());
+      }
+
+      paramWheel.quaternion.set(
         wheelQuaternion.x(),
         wheelQuaternion.y(),
         wheelQuaternion.z(),
@@ -370,30 +405,30 @@ function addBlobShadow(model, width, length) {
   canvas.width = 128;
   canvas.height = 128;
   const context = canvas.getContext('2d');
-  
+
   const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
   gradient.addColorStop(0, 'rgba(0, 0, 0, 0.8)');
   gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.5)');
   gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
   context.fillStyle = gradient;
   context.fillRect(0, 0, 128, 128);
-  
+
   const shadowTexture = new THREE.CanvasTexture(canvas);
-  const shadowMaterial = new THREE.MeshBasicMaterial({ 
-    map: shadowTexture, 
-    transparent: true, 
+  const shadowMaterial = new THREE.MeshBasicMaterial({
+    map: shadowTexture,
+    transparent: true,
     depthWrite: false,
     opacity: 0.8
   });
-  
+
   const shadowGeo = new THREE.PlaneGeometry(width, length);
   const shadowMesh = new THREE.Mesh(shadowGeo, shadowMaterial);
   shadowMesh.rotation.x = -Math.PI / 2;
   // Position it slightly below the center of the chassis, right above ground
   // Assuming model origin is center of chassis.
-  shadowMesh.position.y = -0.4; 
+  shadowMesh.position.y = -0.4;
   shadowMesh.receiveShadow = false;
   shadowMesh.castShadow = false;
-  
+
   model.add(shadowMesh);
 }
